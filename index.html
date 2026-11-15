@@ -299,7 +299,6 @@
       const OST_ACCENTS = [1.0, 0.72, 0.85, 0.70, 0.92, 0.72, 0.82, 0.75];
       const BEAT_MODES  = ["VIOLIN", "PULSE", "OFF"];
 
-      // Built-in fallback NASA GISTEMP spectrum (OpenCV HSV: H 0..179, S 0..255, V 0..255, Cold -> Hot)
       const FALLBACK_SPECTRUM_HSV = [
         [113, 230, 155], [110, 220, 190], [105, 195, 225], [100, 145, 240],
         [96, 85, 245],   [92, 35, 245],   [28, 28, 248],   [26, 95, 250],
@@ -377,7 +376,6 @@
         return "UNCHARTED GLOBAL HEAT";
       }
 
-      // OpenCV-exact RGB -> HSV (H: 0..179, S: 0..255, V: 0..255)
       function rgbToCvHsv(r, g, b) {
         const vmax = r > g ? (r > b ? r : b) : (g > b ? g : b);
         const vmin = r < g ? (r < b ? r : b) : (g < b ? g : b);
@@ -395,7 +393,6 @@
         return [h, s, v];
       }
 
-      // Build 180 x 64 x 64 cylindrical HSV lookup table
       function buildHsvLut(specHsv) {
         const nSpec = specHsv.length;
         const specX = new Float32Array(nSpec);
@@ -496,11 +493,12 @@
 
         render(outL, outR, n, tgtA, tgtP, heat, mVol, bpm, bMode, running, muted) {
           const sr = this.sr;
-          const aVol = muted ? 0.0 : 0.48;
-          const bVol = muted ? 0.0 : 0.65;
+          // Mute background pads and beats when paused (!running) or muted
+          const aVol = (muted || !running) ? 0.0 : 0.48;
+          const bVol = (muted || !running) ? 0.0 : 0.65;
 
           for (let b = 0; b < NUM_BINS; b++) {
-            const ta = muted ? 0.0 : tgtA[b];
+            const ta = (muted || !running) ? 0.0 : tgtA[b];
             this.sAmps[b] = this.amps[b];
             this.eAmps[b] = this.amps[b] + 0.25 * (ta - this.amps[b]);
             this.amps[b] = this.eAmps[b];
@@ -651,7 +649,6 @@
             outR[i] = softLimitScalar(this.lpR, 0.84);
           }
 
-          // Advance oscillator phases & beat voice ages
           for (let b = 0; b < NUM_BINS; b++) {
             this.phL[b] = (this.phL[b] + twoPi * (HEAT_FREQS[b] + 0.14) * n / sr) % twoPi;
             this.phR[b] = (this.phR[b] + twoPi * (HEAT_FREQS[b] - 0.14) * n / sr) % twoPi;
@@ -688,7 +685,6 @@
       contourCanvas.height = VID_H;
       const contourCtx = contourCanvas.getContext("2d");
 
-      // Controls DOM
       const playBtn = document.getElementById("playBtn");
       const muteBtn = document.getElementById("muteBtn");
       const beatBtn = document.getElementById("beatBtn");
@@ -712,7 +708,6 @@
       const hotVal = document.getElementById("hotVal");
       const spdVal = document.getElementById("spdVal");
 
-      // State variables
       let lut = buildHsvLut(FALLBACK_SPECTRUM_HSV);
       let samplePts = [];
       let hasContours = false;
@@ -741,7 +736,6 @@
       let liveBpm = 60.0;
       let beatPulse = 0.0;
 
-      // Audio state
       let audioCtx = null;
       let synthEngine = null;
       let scriptNode = null;
@@ -777,7 +771,6 @@
         }
       }
 
-      // ==================== DEFAULT SPECTRUM LOADER ====================
       function parseSpectrumText(text) {
         const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
         const rows = [];
@@ -814,7 +807,6 @@
         return "Using built-in GISTEMP spectrum";
       }
 
-      // ==================== EARTH MASK & CONTOUR DETECTION ====================
       function initFullMask() {
         samplePts = [];
         for (let y = 0; y < VID_H; y += PIXEL_STRIDE) {
@@ -830,7 +822,6 @@
         const bin = new Uint8Array(w * h);
         for (let i = 0; i < bin.length; i++) bin[i] = maxLum[i] > 18 ? 1 : 0;
 
-        // Morphological close (5x5 ellipse approximation: dilate r=2 then erode r=2)
         const dil = new Uint8Array(w * h);
         for (let y = 0; y < h; y++) {
           for (let x = 0; x < w; x++) {
@@ -865,7 +856,6 @@
           }
         }
 
-        // Connected components -> keep largest component
         const labels = new Int32Array(w * h);
         const queue = new Int32Array(w * h);
         let bestLabel = 0, bestArea = 0, curLabel = 0;
@@ -899,7 +889,6 @@
         const mask = new Uint8Array(w * h);
         for (let i = 0; i < mask.length; i++) mask[i] = labels[i] === bestLabel ? 1 : 0;
 
-        // Fill interior holes via exterior flood fill from border
         const ext = new Uint8Array(w * h);
         let qh = 0, qt = 0;
         for (let x = 0; x < w; x++) {
@@ -922,7 +911,6 @@
         }
         for (let i = 0; i < mask.length; i++) if (!ext[i]) mask[i] = 1;
 
-        // Collect sampled Earth pixels
         samplePts = [];
         for (let y = 0; y < h; y += PIXEL_STRIDE) {
           for (let x = 0; x < w; x += PIXEL_STRIDE) {
@@ -932,7 +920,6 @@
           }
         }
 
-        // Build crisp white contour image on contourCanvas
         const cImg = contourCtx.createImageData(w, h);
         const cd = cImg.data;
         for (let y = 1; y < h - 1; y++) {
@@ -983,7 +970,6 @@
         statusMsg.textContent = `Ready (${DEFAULT_VIDEO_SRC} | ${specNote}). Click PLAY to begin.`;
       }
 
-      // ==================== FRAME PROCESSING ====================
       function processCurrentFrame() {
         const imgData = vidCtx.getImageData(0, 0, VID_W, VID_H).data;
         const cnt = new Float64Array(NUM_BINS);
@@ -1025,17 +1011,14 @@
         }
       }
 
-      // ==================== EXHIBITION CANVAS RENDERER ====================
       function renderExhibition(frac) {
         const hRgb = stripeRGB(heatScore);
         const hCol = rgbCss(hRgb);
         const yrInt = Math.round(currYear);
 
-        // Background
         ctx.fillStyle = "rgb(10,12,14)";
         ctx.fillRect(0, 0, EXP_W, EXP_H);
 
-        // Header Placard
         ctx.fillStyle = "rgb(244,238,235)";
         ctx.font = "700 23px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
         ctx.fillText("THE SOUND OF A WARMING PLANET", 36, 42);
@@ -1044,7 +1027,6 @@
         ctx.font = "500 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
         ctx.fillText("GLOBAL SURFACE TEMPERATURE ANOMALIES  |  1880 - 2023", 38, 63);
 
-        // Top-right heartbeat pulse pill
         const bm = BEAT_MODES[beatModeIdx];
         const dotR = 5 + Math.round(beatPulse * 4);
         ctx.fillStyle = bm !== "OFF" ? hCol : "rgb(110,95,90)";
@@ -1057,7 +1039,6 @@
         const hbTxt = bm !== "OFF" ? `EARTH PULSE: ${Math.round(liveBpm)} BPM` : "AMBIENT MODE";
         ctx.fillText(hbTxt, 1032, 47);
 
-        // Left Hero Earth Map + Breathing Thermal Aura
         ctx.drawImage(vidCanvas, 36, 78, VID_W, VID_H);
         if (hasContours) {
           ctx.save();
@@ -1071,7 +1052,6 @@
         ctx.lineWidth = 1;
         ctx.strokeRect(35.5, 77.5, VID_W + 2, VID_H + 2);
 
-        // Right Column Panel
         const rx = 808;
         ctx.fillStyle = "rgb(20,22,28)";
         ctx.fillRect(rx, 77, 1244 - rx, 418);
@@ -1096,7 +1076,6 @@
         ctx.lineTo(1220, 236);
         ctx.stroke();
 
-        // Circular Global Fever Gauge
         const gx = rx + 96, gy = 330, gr = 62;
         const startAng = (135 * Math.PI) / 180;
         const fullEnd = (405 * Math.PI) / 180;
@@ -1127,7 +1106,6 @@
         ctx.font = "600 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
         ctx.fillText("HEAT INDEX", gx - 35, gy + 44);
 
-        // Cool vs Warm zones
         let coldPct = 0, warmPct = 0;
         for (let i = 0; i < 6; i++) coldPct += currHist[i] * 100;
         for (let i = 12; i < NUM_BINS; i++) warmPct += currHist[i] * 100;
@@ -1155,7 +1133,6 @@
         const pkTxt = yrInt >= BEAT_END_YEAR ? "TEMPO PEAK REACHED (2020+)" : `ACCELERATING TO ${BEAT_END_YEAR}`;
         ctx.fillText(pkTxt, bx, 404);
 
-        // Planetary Balance Bar
         ctx.fillStyle = "rgb(148,156,172)";
         ctx.font = "600 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
         ctx.fillText("PLANETARY THERMAL BALANCE", rx + 26, 442);
@@ -1174,7 +1151,6 @@
           ctx.fillRect(barR - wmW, 452, wmW, 20);
         }
 
-        // Bottom: Live Warming Stripes
         const sx1 = 36, sy1 = 536, sx2 = 1244, sy2 = 668, sw = sx2 - sx1;
         ctx.fillStyle = "rgb(198,205,218)";
         ctx.font = "600 14px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
@@ -1203,7 +1179,6 @@
         ctx.lineWidth = 1;
         ctx.strokeRect(sx1 + 0.5, sy1 + 0.5, sw, sy2 - sy1);
 
-        // Year ticks
         ctx.font = "600 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
         for (const yrTick of [1880, 1920, 1950, 1980, 2000, 2020, 2023]) {
           const tx = Math.round(sx1 + clamp((yrTick - START_YEAR) / (END_YEAR - START_YEAR), 0, 1) * sw);
@@ -1216,7 +1191,6 @@
           ctx.fillText(String(yrTick), tx - 15, sy2 + 23);
         }
 
-        // Playhead
         const playX = Math.round(sx1 + clamp(frac, 0, 1) * sw);
         ctx.strokeStyle = "rgb(245,248,255)";
         ctx.lineWidth = 2;
@@ -1226,7 +1200,6 @@
         ctx.stroke();
       }
 
-      // ==================== PLAYBACK & LOOP ====================
       function updateUIControls() {
         playBtn.textContent = isPlaying ? "PAUSE" : "PLAY";
         playBtn.classList.toggle("active", isPlaying);
@@ -1284,7 +1257,6 @@
         if (synthEngine) synthEngine.resetBeats();
       }
 
-      // Main animation loop
       function tick() {
         let frac = 0.0;
         if (videoReady && video.duration > 0) {
@@ -1300,7 +1272,6 @@
           processCurrentFrame();
         }
 
-        // Fill warming stripe buffer
         const nSteps = stripeScores.length;
         const idx = Math.min(nSteps - 1, Math.floor(frac * (nSteps - 1)));
         if (idx > prevStripeIdx) {
@@ -1323,7 +1294,6 @@
         requestAnimationFrame(tick);
       }
 
-      // ==================== STARTUP INITIALIZATION ====================
       async function initDefaultMedia() {
         const specNote = await loadDefaultSpectrum();
 
@@ -1345,7 +1315,6 @@
         }
       }
 
-      // ==================== BUTTONS & SLIDERS ====================
       playBtn.addEventListener("click", togglePlay);
 
       muteBtn.addEventListener("click", () => {
@@ -1367,7 +1336,6 @@
         else document.exitFullscreen().catch(() => {});
       });
 
-      // Export canvas + Web Audio via MediaRecorder
       saveBtn.addEventListener("click", () => {
         if (!videoReady) {
           statusMsg.textContent = `Wait for ${DEFAULT_VIDEO_SRC} to finish loading before recording.`;
@@ -1426,7 +1394,6 @@
         seekToFraction(Number(timelineSlider.value) / 1000.0);
       });
 
-      // Allow clicking directly on the Warming Stripes bar on the canvas to seek
       canvas.addEventListener("click", (e) => {
         const rect = canvas.getBoundingClientRect();
         const cx = ((e.clientX - rect.left) / rect.width) * EXP_W;
@@ -1458,7 +1425,6 @@
         video.playbackRate = playSpeed;
       });
 
-      // Keyboard shortcuts
       window.addEventListener("keydown", (e) => {
         if (e.target.tagName === "INPUT") return;
         if (e.code === "Space") { e.preventDefault(); togglePlay(); }
