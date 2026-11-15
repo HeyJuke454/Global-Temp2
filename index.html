@@ -491,9 +491,16 @@
           this.bCount = 0;
         }
 
+        resetAudio() {
+          this.dBufL.fill(0);
+          this.dBufR.fill(0);
+          this.lpL = 0.0;
+          this.lpR = 0.0;
+          this.resetBeats();
+        }
+
         render(outL, outR, n, tgtA, tgtP, heat, mVol, bpm, bMode, running, muted) {
           const sr = this.sr;
-          // Mute background pads and beats when paused (!running) or muted
           const aVol = (muted || !running) ? 0.0 : 0.48;
           const bVol = (muted || !running) ? 0.0 : 0.65;
 
@@ -508,7 +515,6 @@
             this.pans[b] = this.ePans[b];
           }
 
-          // Beats scheduling
           if (running && !muted && bVol > 0.001 && bMode !== "OFF") {
             const dp = bpm / (60.0 * sr);
             let endP = this.bPhase + n * dp;
@@ -526,7 +532,6 @@
             this.bPhase = endP;
           }
 
-          // Pad targets
           const cp = (this.clock / 9.0) % COOL_CHORDS.length;
           const c0 = Math.floor(cp);
           const c1 = (c0 + 1) % COOL_CHORDS.length;
@@ -1245,6 +1250,7 @@
           video.play().catch(() => {});
         } else {
           video.pause();
+          if (synthEngine) synthEngine.resetAudio(); // Clears delay buffer echo tail instantly on pause
         }
         updateUIControls();
       }
@@ -1254,7 +1260,7 @@
         stripeScores.fill(NaN);
         prevStripeIdx = 0;
         seekToFraction(0);
-        if (synthEngine) synthEngine.resetBeats();
+        if (synthEngine) synthEngine.resetAudio();
       }
 
       function tick() {
@@ -1264,7 +1270,7 @@
             stripeScores.fill(NaN);
             prevStripeIdx = 0;
             video.currentTime = 0;
-            if (synthEngine) synthEngine.resetBeats();
+            if (synthEngine) synthEngine.resetAudio();
             if (isPlaying) video.play().catch(() => {});
           }
           frac = clamp(video.currentTime / video.duration, 0, 1);
