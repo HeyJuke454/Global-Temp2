@@ -42,71 +42,6 @@
       gap: 12px;
     }
 
-    /* File loader bar */
-    .file-bar {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px 14px;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    .file-group {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .file-btn {
-      position: relative;
-      overflow: hidden;
-      background: var(--panel-2);
-      border: 1px solid #394357;
-      color: var(--text);
-      padding: 7px 13px;
-      border-radius: 7px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s, border-color 0.15s;
-    }
-
-    .file-btn:hover {
-      background: #232b3b;
-      border-color: var(--accent);
-    }
-
-    .file-btn input[type="file"] {
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      cursor: pointer;
-    }
-
-    .pill {
-      font-size: 12px;
-      color: var(--muted);
-      background: #10131a;
-      border: 1px solid var(--border);
-      padding: 5px 10px;
-      border-radius: 999px;
-      max-width: 280px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .pill.ok {
-      color: #9de5be;
-      border-color: #2b5c43;
-      background: #102119;
-    }
-
     /* Exhibition stage */
     .stage-wrap {
       position: relative;
@@ -116,11 +51,6 @@
       border-radius: 10px;
       overflow: hidden;
       box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55);
-    }
-
-    .stage-wrap.dragover {
-      outline: 3px dashed var(--accent);
-      outline-offset: -6px;
     }
 
     #exhibitionCanvas {
@@ -255,27 +185,6 @@
 </head>
 <body>
   <div class="app-shell">
-    <!-- File Bar -->
-    <div class="file-bar">
-      <div class="file-group">
-        <label class="file-btn">
-          Load MP4 Video
-          <input id="videoInput" type="file" accept="video/*" />
-        </label>
-        <span id="videoStatus" class="pill">No video loaded (or try Demo Mode)</span>
-
-        <label class="file-btn">
-          Load spectrum_hsv.txt (Optional)
-          <input id="specInput" type="file" accept=".txt,.csv" />
-        </label>
-        <span id="specStatus" class="pill ok">Using built-in GISTEMP spectrum</span>
-      </div>
-
-      <div class="file-group">
-        <button id="demoBtn" class="ctrl-btn" type="button">LOAD DEMO GLOBE</button>
-      </div>
-    </div>
-
     <!-- Exhibition Canvas -->
     <div id="stageWrap" class="stage-wrap">
       <canvas id="exhibitionCanvas" width="1280" height="720"></canvas>
@@ -323,17 +232,21 @@
       </div>
 
       <div class="status-line">
-        <span id="statusMsg" class="status-msg">Drop your 2023GISTEMP_Map_HD.mp4 onto the screen above or click "Load MP4 Video", then click PLAY.</span>
+        <span id="statusMsg" class="status-msg">Initializing 2023GISTEMP_Map_HD.mp4 and spectrum_hsv.txt...</span>
         <span>Keys: [Space] Play/Pause · [M] Mute · [B] Beat · [R] Restart · [F] Fullscreen</span>
       </div>
     </div>
   </div>
 
-  <!-- Hidden video & offscreen canvases -->
-  <video id="srcVideo" muted playsinline crossorigin="anonymous" style="display:none;"></video>
+  <!-- Hidden video -->
+  <video id="srcVideo" src="2023GISTEMP_Map_HD.mp4" preload="auto" muted playsinline crossorigin="anonymous" style="display:none;"></video>
 
   <script>
     (() => {
+      // ==================== DEFAULT INPUT FILES ====================
+      const DEFAULT_VIDEO_SRC = "2023GISTEMP_Map_HD.mp4";
+      const DEFAULT_SPECTRUM_SRC = "spectrum_hsv.txt";
+
       // ==================== SETTINGS ====================
       const START_YEAR = 1880;
       const END_YEAR = 2023;
@@ -387,7 +300,7 @@
       const BEAT_MODES  = ["VIOLIN", "PULSE", "OFF"];
 
       // Built-in fallback NASA GISTEMP spectrum (OpenCV HSV: H 0..179, S 0..255, V 0..255, Cold -> Hot)
-      const DEFAULT_SPECTRUM_HSV = [
+      const FALLBACK_SPECTRUM_HSV = [
         [113, 230, 155], [110, 220, 190], [105, 195, 225], [100, 145, 240],
         [96, 85, 245],   [92, 35, 245],   [28, 28, 248],   [26, 95, 250],
         [24, 165, 250],  [20, 215, 250],  [16, 235, 248],  [12, 242, 242],
@@ -424,7 +337,6 @@
         return clamp(0.55 * meanH + 0.45 * bal, 0, 1);
       }
 
-      // Note: Python stripe_bgr returned (B, G, R). Here we return [R, G, B] and CSS rgb()
       function stripeRGB(val) {
         const t = clamp(val, 0, 1);
         const stops = [
@@ -777,12 +689,6 @@
       const contourCtx = contourCanvas.getContext("2d");
 
       // Controls DOM
-      const videoInput = document.getElementById("videoInput");
-      const specInput = document.getElementById("specInput");
-      const videoStatus = document.getElementById("videoStatus");
-      const specStatus = document.getElementById("specStatus");
-      const demoBtn = document.getElementById("demoBtn");
-
       const playBtn = document.getElementById("playBtn");
       const muteBtn = document.getElementById("muteBtn");
       const beatBtn = document.getElementById("beatBtn");
@@ -807,11 +713,11 @@
       const spdVal = document.getElementById("spdVal");
 
       // State variables
-      let lut = buildHsvLut(DEFAULT_SPECTRUM_HSV);
-      let samplePts = []; // { x, y, xNorm }
+      let lut = buildHsvLut(FALLBACK_SPECTRUM_HSV);
+      let samplePts = [];
       let hasContours = false;
 
-      let sourceMode = "none"; // "none" | "video" | "demo"
+      let videoReady = false;
       let isPlaying = false;
       let isMuted = false;
       let beatModeIdx = 0;
@@ -821,9 +727,6 @@
       let addBpm = 180.0;
       let hotBoost = 1.25;
       let playSpeed = 1.0;
-
-      let demoProgress = 0.0; // 0..1 when in demo mode
-      const DEMO_DUR_SEC = 45.0;
 
       let stripeScores = new Float32Array(1200).fill(NaN);
       let prevStripeIdx = 0;
@@ -872,6 +775,43 @@
         if (audioCtx.state === "suspended") {
           audioCtx.resume();
         }
+      }
+
+      // ==================== DEFAULT SPECTRUM LOADER ====================
+      function parseSpectrumText(text) {
+        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const rows = [];
+        for (let i = 1; i < lines.length; i++) {
+          const nums = lines[i].split(/\s+/).map(Number);
+          if (nums.length >= 6 && nums.every(Number.isFinite)) {
+            rows.push([nums[3], nums[4], nums[5]]);
+          }
+        }
+        if (rows.length > 10) {
+          rows.shift();
+          rows.pop();
+        }
+        if (rows.length > 0) {
+          rows.reverse();
+          lut = buildHsvLut(rows);
+          return rows.length;
+        }
+        return 0;
+      }
+
+      async function loadDefaultSpectrum() {
+        try {
+          const res = await fetch(DEFAULT_SPECTRUM_SRC);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const text = await res.text();
+          const stops = parseSpectrumText(text);
+          if (stops > 0) {
+            return `Loaded ${DEFAULT_SPECTRUM_SRC} (${stops} stops)`;
+          }
+        } catch (err) {
+          console.warn(`Could not fetch ${DEFAULT_SPECTRUM_SRC}, using built-in spectrum:`, err);
+        }
+        return "Using built-in GISTEMP spectrum";
       }
 
       // ==================== EARTH MASK & CONTOUR DETECTION ====================
@@ -992,7 +932,7 @@
           }
         }
 
-        // Build crisp white contour image on contourCanvas (tinted dynamically later)
+        // Build crisp white contour image on contourCanvas
         const cImg = contourCtx.createImageData(w, h);
         const cd = cImg.data;
         for (let y = 1; y < h - 1; y++) {
@@ -1019,10 +959,10 @@
         });
       }
 
-      async function analyzeVideoEarthMask() {
+      async function analyzeVideoEarthMask(specNote) {
         const dur = video.duration || 1;
         const maxLum = new Uint8Array(VID_W * VID_H);
-        statusMsg.textContent = "Scanning video frames to detect Earth silhouette...";
+        statusMsg.textContent = `Scanning ${DEFAULT_VIDEO_SRC} to detect Earth silhouette...`;
 
         for (let s = 0; s < 6; s++) {
           const t = clamp((s / 5) * Math.max(0, dur - 0.05), 0, dur);
@@ -1037,7 +977,10 @@
 
         computeEarthMaskFromBuffer(maxLum);
         await seekVideo(0);
-        statusMsg.textContent = "Ready! Click PLAY in the controls below to start the exhibition.";
+        vidCtx.drawImage(video, 0, 0, VID_W, VID_H);
+        processCurrentFrame();
+        videoReady = true;
+        statusMsg.textContent = `Ready (${DEFAULT_VIDEO_SRC} | ${specNote}). Click PLAY to begin.`;
       }
 
       // ==================== FRAME PROCESSING ====================
@@ -1080,66 +1023,6 @@
         for (let i = 0; i < NUM_BINS; i++) {
           tgtAmps[i] = currHist[i] * BASE_WEIGHTS[i] * (1.0 + hotBoost * HOT_MASK[i]);
         }
-      }
-
-      // ==================== DEMO GLOBE GENERATOR ====================
-      function renderDemoGlobe(progress) {
-        vidCtx.fillStyle = "#08090d";
-        vidCtx.fillRect(0, 0, VID_W, VID_H);
-
-        const cx = VID_W / 2, cy = VID_H / 2;
-        const rx = 290, ry = 155;
-
-        vidCtx.save();
-        vidCtx.beginPath();
-        vidCtx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-        vidCtx.clip();
-
-        // Warming drift from cool blues (1880) to warm amber/red (2023)
-        const baseHeat = clamp(0.18 + 0.72 * Math.pow(progress, 1.45), 0, 1);
-        const grad = vidCtx.createRadialGradient(
-          cx - 60 + 110 * progress,
-          cy - 30 * Math.sin(progress * 6),
-          25,
-          cx, cy, rx
-        );
-        const cHot = stripeRGB(clamp(baseHeat + 0.16, 0, 1));
-        const cMid = stripeRGB(baseHeat);
-        const cCool = stripeRGB(clamp(baseHeat - 0.25, 0, 1));
-        grad.addColorStop(0.0, rgbCss(cHot));
-        grad.addColorStop(0.55, rgbCss(cMid));
-        grad.addColorStop(1.0, rgbCss(cCool));
-        vidCtx.fillStyle = grad;
-        vidCtx.fillRect(cx - rx, cy - ry, rx * 2, ry * 2);
-
-        // Moving regional anomalies
-        for (let k = 0; k < 6; k++) {
-          const ang = progress * 4.2 + k * 1.1;
-          const ax = cx + Math.cos(ang) * (rx * 0.55);
-          const ay = cy + Math.sin(ang * 1.3) * (ry * 0.5);
-          const rg = vidCtx.createRadialGradient(ax, ay, 8, ax, ay, 95);
-          const localVal = clamp(baseHeat + (k % 2 === 0 ? 0.22 : -0.15), 0, 1);
-          rg.addColorStop(0, rgbCss(stripeRGB(localVal), 0.75));
-          rg.addColorStop(1, rgbCss(stripeRGB(localVal), 0.0));
-          vidCtx.fillStyle = rg;
-          vidCtx.beginPath();
-          vidCtx.arc(ax, ay, 95, 0, Math.PI * 2);
-          vidCtx.fill();
-        }
-        vidCtx.restore();
-      }
-
-      function setupDemoMask() {
-        const w = VID_W, h = VID_H;
-        const cx = w / 2, cy = h / 2, rx = 290, ry = 155;
-        const lum = new Uint8Array(w * h);
-        for (let y = 0; y < h; y++) {
-          for (let x = 0; x < w; x++) {
-            const dx = (x - cx) / rx, dy = (y - cy) / ry;
-            if (dx * dx + dy * dy <= 1.0) lum[y * w + x] = 200;
-          }
-        }
-        computeEarthMaskFromBuffer(lum);
       }
 
       // ==================== EXHIBITION CANVAS RENDERER ====================
@@ -1341,20 +1224,6 @@
         ctx.moveTo(playX, sy1 - 4);
         ctx.lineTo(playX, sy2 + 4);
         ctx.stroke();
-
-        // Prompt overlay if no media loaded
-        if (sourceMode === "none") {
-          ctx.fillStyle = "rgba(10,12,18,0.72)";
-          ctx.fillRect(36, 78, VID_W, VID_H);
-          ctx.fillStyle = "#eef2fa";
-          ctx.font = "700 22px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-          ctx.textAlign = "center";
-          ctx.fillText("Load 2023GISTEMP_Map_HD.mp4 to Begin", 36 + VID_W / 2, 78 + VID_H / 2 - 14);
-          ctx.fillStyle = "#9fd0ff";
-          ctx.font = "500 14px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-          ctx.fillText('Drag & drop MP4 here, click "Load MP4 Video", or try "LOAD DEMO GLOBE"', 36 + VID_W / 2, 78 + VID_H / 2 + 18);
-          ctx.textAlign = "left";
-        }
       }
 
       // ==================== PLAYBACK & LOOP ====================
@@ -1376,6 +1245,7 @@
       }
 
       function seekToFraction(frac) {
+        if (!videoReady) return;
         frac = clamp(frac, 0, 1);
         const nSteps = stripeScores.length;
         const targetIdx = Math.min(nSteps - 1, Math.floor(frac * (nSteps - 1)));
@@ -1384,34 +1254,30 @@
         }
         prevStripeIdx = targetIdx;
 
-        if (sourceMode === "video" && video.duration) {
+        if (video.duration) {
           video.currentTime = frac * video.duration;
-        } else if (sourceMode === "demo") {
-          demoProgress = frac;
         }
         if (frac === 0 && synthEngine) synthEngine.resetBeats();
       }
 
       function togglePlay() {
-        if (sourceMode === "none") {
-          statusMsg.textContent = 'Please load an MP4 video or click "LOAD DEMO GLOBE" first.';
+        if (!videoReady) {
+          statusMsg.textContent = `Still loading ${DEFAULT_VIDEO_SRC}...`;
           return;
         }
         ensureAudio();
         isPlaying = !isPlaying;
-        if (sourceMode === "video") {
-          if (isPlaying) {
-            video.playbackRate = playSpeed;
-            video.play().catch(() => {});
-          } else {
-            video.pause();
-          }
+        if (isPlaying) {
+          video.playbackRate = playSpeed;
+          video.play().catch(() => {});
+        } else {
+          video.pause();
         }
         updateUIControls();
       }
 
       function restartPlayback() {
-        if (sourceMode === "none") return;
+        if (!videoReady) return;
         stripeScores.fill(NaN);
         prevStripeIdx = 0;
         seekToFraction(0);
@@ -1419,13 +1285,9 @@
       }
 
       // Main animation loop
-      let lastTs = performance.now();
-      function tick(now) {
-        const dt = Math.min(0.1, (now - lastTs) / 1000);
-        lastTs = now;
-
+      function tick() {
         let frac = 0.0;
-        if (sourceMode === "video" && video.duration > 0) {
+        if (videoReady && video.duration > 0) {
           if (video.ended) {
             stripeScores.fill(NaN);
             prevStripeIdx = 0;
@@ -1435,19 +1297,6 @@
           }
           frac = clamp(video.currentTime / video.duration, 0, 1);
           vidCtx.drawImage(video, 0, 0, VID_W, VID_H);
-          processCurrentFrame();
-        } else if (sourceMode === "demo") {
-          if (isPlaying) {
-            demoProgress += (dt * playSpeed) / DEMO_DUR_SEC;
-            if (demoProgress >= 1.0) {
-              demoProgress = 0.0;
-              stripeScores.fill(NaN);
-              prevStripeIdx = 0;
-              if (synthEngine) synthEngine.resetBeats();
-            }
-          }
-          frac = clamp(demoProgress, 0, 1);
-          renderDemoGlobe(frac);
           processCurrentFrame();
         }
 
@@ -1474,90 +1323,29 @@
         requestAnimationFrame(tick);
       }
 
-      // ==================== FILE LOADERS ====================
-      function loadVideoFile(file) {
-        if (!file) return;
-        const url = URL.createObjectURL(file);
-        isPlaying = false;
-        video.pause();
-        video.src = url;
-        sourceMode = "video";
-        videoStatus.textContent = file.name;
-        videoStatus.classList.add("ok");
+      // ==================== STARTUP INITIALIZATION ====================
+      async function initDefaultMedia() {
+        const specNote = await loadDefaultSpectrum();
 
-        video.onloadedmetadata = async () => {
+        const onVideoReady = async () => {
           const steps = Math.max(300, Math.round((video.duration || 30) * 30));
           stripeScores = new Float32Array(steps).fill(NaN);
           prevStripeIdx = 0;
-          await analyzeVideoEarthMask();
-          vidCtx.drawImage(video, 0, 0, VID_W, VID_H);
-          processCurrentFrame();
+          await analyzeVideoEarthMask(specNote);
         };
-      }
 
-      function loadSpectrumFile(file) {
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-          const lines = reader.result.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-          const rows = [];
-          for (let i = 1; i < lines.length; i++) {
-            const nums = lines[i].split(/\s+/).map(Number);
-            if (nums.length >= 6 && nums.every(Number.isFinite)) {
-              rows.push([nums[3], nums[4], nums[5]]);
-            }
-          }
-          if (rows.length > 10) {
-            rows.shift();
-            rows.pop();
-          }
-          if (rows.length > 0) {
-            rows.reverse();
-            lut = buildHsvLut(rows);
-            specStatus.textContent = `${file.name} (${rows.length} stops)`;
-            specStatus.classList.add("ok");
-            statusMsg.textContent = `Loaded custom spectrum LUT from ${file.name}.`;
-          } else {
-            statusMsg.textContent = "Could not parse spectrum_hsv.txt; keeping current LUT.";
-          }
-        };
-        reader.readAsText(file);
-      }
+        video.addEventListener("error", () => {
+          statusMsg.textContent = `Error: Could not load ${DEFAULT_VIDEO_SRC}. Place it in the same directory as this HTML file.`;
+        });
 
-      videoInput.addEventListener("change", (e) => loadVideoFile(e.target.files[0]));
-      specInput.addEventListener("change", (e) => loadSpectrumFile(e.target.files[0]));
-
-      // Drag and drop on stage
-      stageWrap.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        stageWrap.classList.add("dragover");
-      });
-      stageWrap.addEventListener("dragleave", () => stageWrap.classList.remove("dragover"));
-      stageWrap.addEventListener("drop", (e) => {
-        e.preventDefault();
-        stageWrap.classList.remove("dragover");
-        for (const f of e.dataTransfer.files) {
-          if (f.name.toLowerCase().endsWith(".txt")) loadSpectrumFile(f);
-          else if (f.type.startsWith("video/") || f.name.toLowerCase().endsWith(".mp4")) loadVideoFile(f);
+        if (video.readyState >= 1) {
+          await onVideoReady();
+        } else {
+          video.addEventListener("loadedmetadata", onVideoReady, { once: true });
         }
-      });
+      }
 
       // ==================== BUTTONS & SLIDERS ====================
-      demoBtn.addEventListener("click", () => {
-        isPlaying = false;
-        video.pause();
-        sourceMode = "demo";
-        demoProgress = 0.0;
-        stripeScores = new Float32Array(1350).fill(NaN);
-        prevStripeIdx = 0;
-        setupDemoMask();
-        renderDemoGlobe(0);
-        processCurrentFrame();
-        videoStatus.textContent = "Demo Warming Globe";
-        videoStatus.classList.add("ok");
-        statusMsg.textContent = "Demo globe ready! Click PLAY to hear and see the sonification.";
-      });
-
       playBtn.addEventListener("click", togglePlay);
 
       muteBtn.addEventListener("click", () => {
@@ -1581,8 +1369,8 @@
 
       // Export canvas + Web Audio via MediaRecorder
       saveBtn.addEventListener("click", () => {
-        if (sourceMode === "none") {
-          statusMsg.textContent = "Load a video or Demo Globe before recording.";
+        if (!videoReady) {
+          statusMsg.textContent = `Wait for ${DEFAULT_VIDEO_SRC} to finish loading before recording.`;
           return;
         }
         ensureAudio();
@@ -1643,7 +1431,7 @@
         const rect = canvas.getBoundingClientRect();
         const cx = ((e.clientX - rect.left) / rect.width) * EXP_W;
         const cy = ((e.clientY - rect.top) / rect.height) * EXP_H;
-        if (cx >= 36 && cx <= 1244 && cy >= 536 && cy <= 668 && sourceMode !== "none") {
+        if (cx >= 36 && cx <= 1244 && cy >= 536 && cy <= 668 && videoReady) {
           seekToFraction((cx - 36) / (1244 - 36));
         }
       });
@@ -1667,10 +1455,10 @@
       spdSlider.addEventListener("input", () => {
         playSpeed = Number(spdSlider.value) / 100.0;
         spdVal.textContent = `${spdSlider.value}%`;
-        if (sourceMode === "video") video.playbackRate = playSpeed;
+        video.playbackRate = playSpeed;
       });
 
-      // Keyboard shortcuts matching original app
+      // Keyboard shortcuts
       window.addEventListener("keydown", (e) => {
         if (e.target.tagName === "INPUT") return;
         if (e.code === "Space") { e.preventDefault(); togglePlay(); }
@@ -1681,6 +1469,7 @@
       });
 
       initFullMask();
+      initDefaultMedia();
       requestAnimationFrame(tick);
     })();
   </script>
